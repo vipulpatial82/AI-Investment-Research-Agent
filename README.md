@@ -256,6 +256,41 @@ This tool is for educational and demonstration purposes only. Output is derived 
 
 ---
 
+---
+
+## 📦 Built With
+
+**Frontend**
+- [Next.js 14](https://nextjs.org) — App Router, React Server Components
+- [React 18](https://react.dev) — UI framework
+- [Tailwind CSS 3](https://tailwindcss.com) — utility-first styling
+- [Framer Motion 11](https://www.framer.com/motion/) — animations
+- [Lucide React](https://lucide.dev) — icons
+
+**Backend**
+- [Next.js Route Handler](https://nextjs.org/docs/app/building-your-application/routing/route-handlers) — Node.js serverless API
+- [Express 4](https://expressjs.com) — standalone server alternative (`server.js`)
+
+**AI / Agent**
+- [LangGraph.js](https://langchain-ai.github.io/langgraphjs/) (`@langchain/langgraph`) — agent state graph orchestration
+- [LangChain.js](https://js.langchain.com) (`langchain`, `@langchain/core`) — LLM abstraction layer
+- [Google Gemini](https://aistudio.google.com) (`@langchain/google-genai`) — primary LLM
+- [OpenRouter](https://openrouter.ai) (`@langchain/openai`) — fallback LLM provider (optional)
+
+**Data & Search**
+- [Yahoo Finance](https://finance.yahoo.com) — public `v8/finance/chart` endpoint for live market data (no key)
+- [DuckDuckGo](https://duckduckgo.com) — Instant Answer API + HTML scraper for news & competitive research (no key)
+
+**Utilities**
+- [Zod 3](https://zod.dev) — schema validation
+- [dotenv 16](https://github.com/motdotla/dotenv) — environment variable management
+
+**Dev Tools**
+- [TypeScript 6](https://www.typescriptlang.org) — type checking
+- [PostCSS](https://postcss.org) + [Autoprefixer](https://github.com/postcss/autoprefixer) — CSS processing
+
+---
+
 <div align="center">
-  <sub>Built with ❤️ using Amazon Q Developer · LangGraph.js · Google Gemini</sub>
+  <sub>Made by <a href="https://github.com/vipulpatial82">Vipul Patial</a></sub>
 </div>
