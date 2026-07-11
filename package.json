@@ -9,6 +9,9 @@
     "start": "next start",
     "server": "node server.js"
   },
+  "installConfig": {
+    "legacy-peer-deps": true
+  },
   "dependencies": {
     "@langchain/core": "^0.3.40",
     "@langchain/google-genai": "^0.1.8",
