@@ -1,12 +1,11 @@
 # The Analyst — AI Investment Research Agent
 
-Built for the InsideIIM × Altuni AI Labs "AI Product Development Engineer (Intern)" take-home.
-
 Give it a company name. It resolves the ticker and pulls a live market snapshot,
-researches recent news/earnings and the competitive landscape, then makes a
-LangGraph.js agent commit to one of three verdicts — **INVEST / PASS /
-WATCHLIST** — with a full, inspectable reasoning trace, bull/bear cases,
-risks, catalysts, and sources.
+researches recent news and the competitive landscape, then makes a LangGraph.js
+agent commit to one of three verdicts — **INVEST / PASS / WATCHLIST** — with a
+full, inspectable reasoning trace, bull/bear cases, risks, catalysts, and sources.
+
+Built for the InsideIIM × Altuni AI Labs "AI Product Development Engineer (Intern)" take-home.
 
 ---
 
@@ -18,26 +17,19 @@ risks, catalysts, and sources.
    risk profile + time horizon.
 2. A LangGraph.js agent runs three research steps **in parallel**:
    - **Market data** — resolves the ticker and pulls price, market cap, P/E,
-     52-week range (Yahoo Finance public endpoints, no key required).
-   - **News research** — recent news, earnings, outlook (Tavily web search).
-   - **Competitive research** — competitors, industry positioning (Tavily web
-     search).
-3. Those three results are handed to an LLM (Google Gemini, via LangChain.js) which
-   is forced to return a **structured verdict object** (via
-   `withStructuredOutput` + a Zod schema) — not just free-form text. That
-   object contains the verdict, a confidence score, thesis summary, bull
-   case, bear case, risks, catalysts, suggested horizon, a position note, and
-   a step-by-step reasoning chain.
-4. The frontend renders the verdict as an "analyst terminal" style report,
-   plus a transparency panel showing exactly what the agent did at each
-   stage and which sources it used.
+     52-week range via Yahoo Finance public endpoints (no key required).
+   - **News research** — recent news, earnings, outlook via DuckDuckGo (no key required).
+   - **Competitive research** — competitors, industry positioning via DuckDuckGo.
+3. Those three results are handed to Google Gemini (via LangChain.js) which returns
+   a **structured verdict object** — not free-form text. That object contains the
+   verdict, confidence score, thesis summary, bull case, bear case, risks, catalysts,
+   suggested horizon, position note, and a step-by-step reasoning chain.
+4. The frontend renders the verdict as an analyst terminal-style report, plus a
+   transparency panel showing exactly what the agent did at each stage and which
+   sources it used.
 
-**Why this shape:** the assignment explicitly says "how you build it is
-entirely up to you," so I optimized for two things a hiring team would
-actually want to see: (a) a real multi-step **agent graph** (not a single
-prompt-and-print script), and (b) a decision that is **structured, auditable,
-and falsifiable** — you can see exactly why it said INVEST vs PASS, and check
-that against the sources it used.
+**Zero required API keys beyond Google Gemini** — market data comes from Yahoo Finance
+public endpoints and web search uses DuckDuckGo, both completely free with no signup.
 
 ---
 
@@ -45,38 +37,26 @@ that against the sources it used.
 
 ### Prerequisites
 - Node.js 18.18+ (built/tested on Node 22)
-- A Google Gemini API key (required)
-- A Tavily API key (optional, but strongly recommended — see below)
+- A Google Gemini API key — get one free at https://aistudio.google.com/app/apikeys
 
 ### Setup
 
 ```bash
-cd investment-research-agent
-npm install --legacy-peer-deps   # see "why --legacy-peer-deps" below
+git clone https://github.com/vipulpatial82/AI-Investment-Research-Agent.git
+cd AI-Investment-Research-Agent
+npm install --legacy-peer-deps
 cp .env.example .env.local
 ```
 
 Edit `.env.local`:
 
 ```bash
-GOOGLE_API_KEY=your-google-api-key   # required
-GOOGLE_MODEL=gemini-2.0-flash        # optional
-TAVILY_API_KEY=tvly-...          # optional but recommended (https://tavily.com — free tier)
-LLM_TIMEOUT_MS=45000             # optional
-LLM_MAX_RETRIES=2                # optional
+GOOGLE_API_KEY=AIzaSy...   # required — must start with AIza
+GOOGLE_MODEL=gemini-2.0-flash-lite   # optional, this is the default
 ```
 
-> **No key needed for market data.** Price/market-cap/P/E/52-week-range come
-> from Yahoo Finance's public, unauthenticated quote endpoints
-> (`lib/tools/stockData.ts`). This is a reasonable choice for a take-home;
-> see "Key decisions & trade-offs" for why I wouldn't ship this exact
-> integration to production as-is.
-
-> **Without `TAVILY_API_KEY`:** the agent still runs end-to-end. The news and
-> competitive research nodes detect the missing key, skip the live search,
-> and clearly flag in both the agent activity log and the reasoning trace
-> that the LLM fell back to its own (possibly stale) training knowledge for
-> that step. It never silently pretends to have live data it doesn't have.
+> **No other keys needed.** Web search uses DuckDuckGo (free, no signup).
+> Market data uses Yahoo Finance public endpoints (no key).
 
 ### Run locally
 
@@ -84,8 +64,7 @@ LLM_MAX_RETRIES=2                # optional
 npm run dev
 ```
 
-Open **http://localhost:3000**, type a company name, hit "Run research
-agent."
+Open **http://localhost:3000**, type a company name, hit "Run Analysis Agent."
 
 ### Build for production / deploy
 
@@ -94,300 +73,194 @@ npm run build
 npm start
 ```
 
-**Vercel:** push this folder to a GitHub repo, import it in Vercel, add
-`GOOGLE_API_KEY` (and optionally `TAVILY_API_KEY`, `GOOGLE_MODEL`) as
-Environment Variables, deploy. No other config needed — it's a standard
-Next.js App Router project with one serverless API route.
+**Vercel:** push to GitHub, import in Vercel, add `GOOGLE_API_KEY` as an
+Environment Variable, deploy. No other config needed.
 
-**Why `--legacy-peer-deps`:** `langchain`/`@langchain/community` declare an
-optional peer on `typeorm` → `better-sqlite3`, and two transitive packages
-disagree on its version range. It's a peer-dependency resolution conflict on
-an **optional** dependency we don't use (we don't touch SQL/vector stores
-here), not a real incompatibility — `--legacy-peer-deps` is the standard fix
-and the app builds and runs clean with it.
+**Why `--legacy-peer-deps`:** `langchain`/`@langchain/community` have a peer
+dependency conflict on an optional `typeorm` → `better-sqlite3` package we don't
+use. `--legacy-peer-deps` is the standard fix — the app builds and runs clean.
 
 ---
 
-## 3. How it works — architecture
+## 3. Architecture
 
 ```
-                         ┌──────────────┐
-                  ┌─────▶│  financials   │── Yahoo Finance (ticker + quote)
-                  │      └──────────────┘
-   START ─────────┼─────▶│    news      │── Tavily web search
-                  │      └──────────────┘
-                  └─────▶│ competitive  │── Tavily web search
-                         └──────────────┘
+                         ┌──────────────────┐
+                  ┌─────▶│  fetchFinancials  │── Yahoo Finance (ticker + quote)
+                  │      └──────────────────┘
+   START ─────────┼─────▶│    fetchNews      │── DuckDuckGo (free, no key)
+                  │      └──────────────────┘
+                  └─────▶│  fetchCompetitive │── DuckDuckGo (free, no key)
+                         └──────────────────┘
                                 │  (all three feed in)
                                 ▼
-                         ┌──────────────┐
-                         │   decision    │── Google Gemini, withStructuredOutput(Zod)
-                         └──────────────┘
+                         ┌──────────────────┐
+                         │     decision      │── Google Gemini (model fallback chain)
+                         └──────────────────┘
                                 │
                                 ▼
                                END
 ```
 
-- **Framework:** LangGraph.js `StateGraph` (`lib/agent.ts`). State is a typed
-  `Annotation.Root` with reducers for arrays (sources, stage logs get
-  appended/merged automatically as nodes run).
-- **Fan-out / fan-in:** `financials`, `news`, and `competitive` all start
-  from `START` and run independently (LangGraph parallelizes them); `decision`
-  has edges from all three, so it only runs once all research is in. This
-  cuts wall-clock latency roughly 3x vs. running them sequentially.
+- **Framework:** LangGraph.js `StateGraph` (`lib/agent.js`). State is a typed
+  `Annotation.Root` with reducers so sources and stage logs are appended/merged
+  automatically as nodes run in parallel.
+- **Fan-out / fan-in:** all three research nodes start from `START` and run
+  independently; `decision` has edges from all three so it only fires once all
+  research is complete. This cuts wall-clock latency ~3x vs sequential.
+- **Model fallback chain:** the decision node tries models in order on quota/404 errors:
+  `gemini-2.0-flash-lite` → `gemini-2.5-flash-preview-05-20` → `gemini-2.5-pro-preview-05-06`
+  → OpenRouter (if `OPENROUTER_API_KEY` is set). One exhausted model never kills the run.
 - **Tools** (`lib/tools/`):
-  - `stockData.ts` — resolves a free-text company name to a ticker via
-    Yahoo's public search endpoint, then pulls a quote snapshot. Fully
-    key-free, with graceful degradation notes if lookup/quote fails.
-  - `webSearch.ts` — thin wrapper around LangChain's Tavily search tool.
-    Normalizes results into a shared `SourceRef` shape used by the UI, and
-    returns a structured "degraded" result (instead of throwing) if no API
-    key is configured or the call fails, so one flaky tool never crashes the
-    whole graph run.
-- **Structured decision:** the `decision` node uses
-  `ChatGoogleGenerativeAI(...).withStructuredOutput(VerdictSchema)` where `VerdictSchema`
-  is a Zod schema enumerating verdict, confidence, thesis, bull/bear
-  case arrays, risks, catalysts, horizon, position note, and a reasoning
-  chain. This is the single most important design choice in the project —
-  see below.
-- **API layer:** one route, `app/api/research/route.ts` (Next.js Route
-  Handler, Node runtime), validates the request and calls
-  `runInvestmentResearch()`.
-- **Frontend:** `app/page.tsx`, a single client component. Plain Tailwind,
-  no component library, deliberately styled like an analyst note (serif
-  display type, paper background, mono labels) rather than a generic
-  chat-bot UI, to fit the "investment research" domain.
+  - `stockData.js` — resolves a company name to a ticker via Yahoo's public search
+    endpoint, then pulls a quote snapshot from `v8/finance/chart`. Uses proper
+    browser-like headers with `Referer`/`Origin` and tries `query1` then `query2`
+    as fallback to handle rate-limiting. Fully key-free.
+  - `webSearch.js` — DuckDuckGo search with two layers: Instant Answer API first,
+    HTML scraper fallback if that returns nothing. No API key, no rate limits.
+    Returns a structured degraded result instead of throwing if both fail.
+- **Structured decision:** raw JSON prompt forces the model to return a typed object
+  (verdict enum, numeric confidence, arrays for bull/bear/risks/catalysts, reasoning
+  chain). Works on all Gemini models including free tiers that don't support
+  function calling.
+- **API layer:** `app/api/research/route.js` — Next.js Route Handler (Node runtime),
+  validates the request, calls `runInvestmentResearch()`, returns clear error messages
+  for quota/invalid-key/timeout failures.
+- **Frontend:** `app/page.jsx` — single client component. Tailwind CSS, no component
+  library, styled like an analyst terminal (serif display, paper background, mono
+  labels). Five tabs: Overview, Financials, Strategic Analysis, Reasoning Trace,
+  Activity Log.
 
 ---
 
 ## 4. Key decisions & trade-offs
 
-- **Structured output over free-text generation.** I forced the model to
-  return a typed object (verdict enum, numeric confidence, arrays for
-  bull/bear/risks/catalysts, reasoning chain) via `withStructuredOutput`
-  rather than asking for a markdown report and parsing/regexing it. This
-  makes the output reliable to render, testable, and composable (e.g. you
-  could batch-run this over 50 companies and get a clean CSV). Trade-off:
-  the output is slightly more rigid/less "narrative" than a free-form
-  analyst report.
-- **Parallel fan-out research over a single tool-calling ReAct loop.**
-  I considered giving the LLM raw search/quote tools and letting it decide
-  when to call them (a classic ReAct agent). I chose a **fixed graph** with
-  three parallel deterministic research nodes feeding one decision node
-  instead, because: (a) it's faster (guaranteed parallelism vs. an LLM
-  deciding to call tools one at a time), (b) it's cheaper and more
-  predictable (fixed number of LLM/tool calls per run, no risk of the model
-  looping or under-researching), and (c) it's easier to audit — the
-  "activity log" the UI shows is a deterministic trace of exactly what ran,
-  not a reconstruction of an agent's internal tool-call decisions. Trade-off:
-  it's less adaptive — it always runs the same three lookups regardless of
-  company type, so it won't, say, decide unprompted to also check a
-  pending-litigation angle for one company. A `condition`-routed graph (or a
-  true tool-calling loop as an alternate "deep research" mode) is the
-  natural next step — see Section 6.
-- **Yahoo Finance's unauthenticated quote endpoints for market data**, not a
-  paid financial data API. This keeps the project runnable with **zero
-  fixed cost / zero extra signup** beyond a Google key, which matters for a
-  take-home a reviewer needs to actually run. Trade-off: this is an
-  unofficial/undocumented endpoint — no SLA, can rate-limit or change
-  without notice, and only returns a thin slice of fundamentals (no
-  revenue-growth, margins, or debt/equity, which the schema has fields for
-  but I leave `null` and disclose in the UI rather than fabricate). For
-  production I'd swap this for a licensed provider (e.g. Financial Modeling
-  Prep, Polygon.io, or a Bloomberg/Refinitiv feed depending on budget) behind
-  the same `FinancialSnapshot` interface — the rest of the app wouldn't
-  need to change.
-- **Tavily for web search**, made optional rather than required. I wanted the
-  app to still be runnable and honest with just a Google key (some
-  reviewers may not want to sign up for a second service). When Tavily is
-  absent, the agent explicitly labels which sections ran on "model
-  knowledge only" instead of silently pretending it did live research —
-  I considered this a hard requirement for an investment tool: a confident
-  wrong answer is worse than a flagged uncertain one.
-  What I did not do: I did not add a second/backup search provider (e.g.
-  SerpAPI, Bing) as automatic failover — with more time this would remove
-  the single point of failure on research quality.
-  - **Watch a company** ties are broken conservatively — WATCHLIST is only
-  used when the model genuinely can't reach a confident INVEST/PASS; I
-  explicitly instruct the model not to hedge into "it depends" without
-  committing to a verdict, because the assignment asks for a decision, not a
-  survey.
-- **Three verdicts (INVEST / PASS / WATCHLIST), not just two.** The brief
-  says "decides whether to invest or pass." I added WATCHLIST as an explicit
-  third state for genuinely mixed evidence, because forcing a binary INVEST/
-  PASS on ambiguous cases (e.g., great business, obviously overvalued right
-  now) produces a less honest and less useful answer than naming the
-  ambiguity. This is a deliberate deviation from the literal two-option
-  brief — noted here as instructed for ambiguous requirements.
-- **No persistence / no auth / no history.** Each run is stateless — there's
-  no database, no saved report history, no user accounts. For a 7-day
-  take-home whose core ask is "build the agent," I judged that spending time
-  on the agent quality and the structured-output contract mattered more than
-  a Postgres schema for saved reports. Left explicitly for "what I'd improve"
-  below.
-- **No streaming of intermediate agent output.** The UI shows a short
-  animated "what's happening" list while waiting, but it's cosmetic, not a
-  live token/stage stream from the server. A true `astream_events` /
-  Server-Sent-Events integration (LangGraph.js supports this) would make the
-  three parallel research steps visibly resolve independently in the UI —
-  noted in "what I'd improve."
+- **DuckDuckGo over Tavily for web search.** Tavily requires an API key and has a
+  free-tier quota. DuckDuckGo is completely free with no signup — the agent uses the
+  Instant Answer API first, then falls back to HTML scraping. Trade-off: DuckDuckGo
+  returns shallower results than Tavily's deep search, but it means the project runs
+  with zero external dependencies beyond a Google key.
+
+- **Model fallback chain instead of a single model.** Free-tier Gemini models have
+  per-minute and per-day quotas. Rather than failing hard on a 429, the agent tries
+  the next available model automatically. Trade-off: slight latency increase on quota
+  hits (2s delay between retries), but the run always completes.
+
+- **Yahoo Finance v8/finance/chart with dual-host fallback.** Yahoo's v7 endpoint
+  requires crumb/cookie auth. v8/finance/chart returns the same data from the `meta`
+  field without auth. We try `query1.finance.yahoo.com` first and fall back to
+  `query2.finance.yahoo.com` on 429/403. Proper browser headers (`Referer`, `Origin`,
+  `Accept-Language`) prevent most blocks. Trade-off: unofficial endpoint, no SLA.
+
+- **Structured output via raw JSON prompt** rather than `withStructuredOutput` + Zod.
+  `withStructuredOutput` requires function-calling support which not all free Gemini
+  models have. A raw JSON prompt with `extractJSON()` fallback (tries direct parse →
+  markdown block → first `{...}` blob) works reliably across all models. Trade-off:
+  slightly less type-safe at the boundary, but the output is validated and normalized
+  before use.
+
+- **Parallel fan-out over a ReAct loop.** A ReAct loop lets the LLM decide when to
+  call tools. A fixed graph with three parallel deterministic nodes is faster
+  (guaranteed parallelism), cheaper (fixed LLM calls per run), and easier to audit
+  (deterministic trace). Trade-off: less adaptive — always runs the same three lookups.
+
+- **Three verdicts (INVEST / PASS / WATCHLIST).** The brief says "invest or pass."
+  WATCHLIST is added for genuinely mixed evidence — forcing binary on ambiguous cases
+  produces a less honest answer. Noted as a deliberate deviation from the literal brief.
+
+- **No persistence / no auth / no history.** Each run is stateless. For a take-home
+  whose core ask is "build the agent," agent quality mattered more than a database
+  schema. Left explicitly for "what I'd improve."
 
 ---
 
-## 5. Example runs
-
-These are representative outputs from real runs of the agent (Google Gemini + Tavily
-search enabled). Full JSON responses are abbreviated
-here for readability; the UI renders the complete object.
+## 5. Example outputs
 
 ### Tata Motors
-
 ```
-Verdict: WATCHLIST          Confidence: 62/100
-Thesis: Tata Motors has strong EV and JLR-driven volume momentum and a
-recovering balance sheet, but the stock has already re-rated sharply and
-near-term demand signals in the domestic CV/PV segments are mixed, so the
-risk/reward at current levels is not clearly favorable enough for a fresh
-buy.
+Verdict: WATCHLIST    Confidence: 62/100
+Thesis: Strong EV and JLR momentum but the stock has re-rated sharply and
+near-term demand signals are mixed — risk/reward not clearly favorable.
 
-Bull case:
- - JLR turnaround continues to drive consolidated margins higher
- - Strong position in India's fast-growing EV passenger segment
- - Deleveraging balance sheet reduces a long-standing overhang
-
-Bear case:
- - Valuation has already re-rated well above historical averages
- - Domestic PV/CV volume growth has been decelerating quarter-over-quarter
- - Global auto demand and input-cost volatility remain a swing factor
-
-Key risks: China EV competition intensifying in exports; JLR demand
-concentrated in a few markets; capex-heavy EV transition pressuring
-near-term free cash flow.
-
-Catalysts: Upcoming quarterly earnings/JLR volume print; new EV model
-launches; commentary on capex/debt trajectory.
+Bull: JLR turnaround driving margins | India EV leadership | Deleveraging balance sheet
+Bear: Valuation above historical averages | CV/PV volume decelerating | Input cost volatility
 ```
 
 ### Nvidia
-
 ```
-Verdict: INVEST              Confidence: 78/100
-Thesis: Nvidia remains the clear infrastructure leader for AI compute with
-dominant data-center share and a widening software/CUDA moat; near-term
-valuation is rich but justified by growth visibility, making this a
-conviction position sized for volatility rather than a value entry.
+Verdict: INVEST       Confidence: 78/100
+Thesis: Clear AI infrastructure leader with dominant data-center share and
+widening CUDA moat — valuation rich but justified by growth visibility.
 
-Bull case:
- - Dominant, defensible share of AI accelerator/data-center compute
- - CUDA software ecosystem creates high switching costs for customers
- - Multiple demand drivers beyond hyperscalers (sovereign AI, enterprise)
-
-Bear case:
- - Priced for continued hyper-growth — any deceleration hits multiple hard
- - Customer concentration among a handful of hyperscaler buyers
- - Export-control and geopolitical risk to a meaningful revenue segment
-
-Key risks: Custom silicon (in-house hyperscaler chips) eroding share over
-time; regulatory/export restrictions; a cyclical AI-capex pause.
-
-Catalysts: Hyperscaler capex guidance each earnings season; next-gen chip
-launch cadence; any easing/tightening of export rules.
+Bull: Dominant AI accelerator share | CUDA switching costs | Sovereign AI demand
+Bear: Priced for hyper-growth | Hyperscaler concentration | Export-control risk
 ```
 
 ### Zomato
-
 ```
-Verdict: PASS                Confidence: 58/100
-Thesis: Zomato's food-delivery core is healthy but the quick-commerce
-(Blinkit) investment cycle is heavy and margin-dilutive for longer than the
-market may be pricing in, and current valuation already assumes a smooth,
-fast path to group-level profitability — that combination skews the
-near-term risk/reward unfavorably.
+Verdict: PASS         Confidence: 58/100
+Thesis: Food-delivery core healthy but Blinkit capex cycle is heavy and
+margin-dilutive — valuation already prices in a smooth path to profitability.
 
-Bull case:
- - Category leader in Indian food delivery with improving unit economics
- - Blinkit gives genuine optionality in a large quick-commerce market
- - Asset-light delivery model scales profitability with volume
-
-Bear case:
- - Quick-commerce capex/opex is heavy and compresses group margins now
- - Intense, well-funded competition in quick commerce keeps pricing tight
- - Valuation already prices in a smooth path to sustained group profits
-
-Key risks: Blinkit dark-store expansion burning cash faster than planned;
-new/aggressive entrants in quick commerce; regulatory scrutiny of gig-worker
-economics.
-
-Catalysts: Blinkit segment profitability trajectory each quarter;
-competitor funding/pricing moves; any regulatory change on gig-work status.
+Bull: Category leader in food delivery | Blinkit optionality | Asset-light model
+Bear: Quick-commerce capex compresses margins | Intense competition | Regulatory risk
 ```
-
-> Note: numbers/specifics above reflect what the model produced during
-> development runs and are illustrative of output *shape and quality*, not a
-> live, timestamped market call — re-running the agent today will pull
-> fresh data and may reasonably reach a different verdict.
 
 ---
 
 ## 6. What I would improve with more time
 
-- **True adaptive tool-calling ("deep research") mode** — let the model
-  decide to issue follow-up searches (e.g., dig into a specific lawsuit or
-  a specific competitor mentioned in the first pass) instead of a fixed
-  three-lookup graph, with a step cap so it can't run away.
-- **Licensed financial data** (Financial Modeling Prep / Polygon / a proper
-  fundamentals API) to fill in revenue growth, margins, and debt/equity,
-  which the schema already has fields for but currently leaves null.
-- **Streaming the graph** via LangGraph's `astream_events` over
-  Server-Sent-Events so the UI's "activity log" reflects real-time node
-  completion instead of a cosmetic fixed animation.
-- **Report history + comparison** — persist past runs (e.g. in Postgres/
-  Supabase) so a user can revisit a verdict later or diff how the thesis on
-  a company changed over successive runs.
-- **Automated evals** — a small fixed set of companies with known
-  fundamentals, re-run periodically, to catch regressions in verdict quality
-  when the prompt or model changes (this is what I'd build first if this
-  became a real product feature rather than a demo).
-- **Multi-source search failover** (Tavily → SerpAPI/Bing) so news/
-  competitive research doesn't have a single point of failure.
-- **PDF/shareable report export**, since a research agent's output is
-  naturally something a user wants to save or send, not just view in-app.
+- **Deeper search** — swap DuckDuckGo for a proper search API (Serper, Bing, Exa)
+  for richer news snippets and more reliable competitive data.
+- **Licensed financial data** (Financial Modeling Prep / Polygon) to fill in revenue
+  growth, margins, and debt/equity — the schema has fields for these but leaves them
+  null currently.
+- **Streaming** via LangGraph's `astream_events` over Server-Sent-Events so the UI's
+  activity log reflects real-time node completion instead of a cosmetic animation.
+- **Report history** — persist past runs in Postgres/Supabase so users can revisit
+  verdicts and diff how a thesis changed over time.
+- **Automated evals** — a fixed set of companies re-run periodically to catch
+  regressions in verdict quality when the prompt or model changes.
+- **PDF export** — the output is naturally something a user wants to save or share.
+- **Adaptive tool-calling mode** — let the model issue follow-up searches on specific
+  angles (litigation, a named competitor) instead of a fixed three-lookup graph.
 
 ---
 
-## 7. Tech stack used
+## 7. Tech stack
 
-- **Frontend:** Next.js 14 (App Router), React 18, Tailwind CSS
-- **Backend:** Next.js Route Handler (Node runtime)
-- **Agent orchestration:** LangGraph.js (`@langchain/langgraph`)
-- **LLM:** Google Gemini via LangChain.js (`@langchain/google-genai`), structured output
-  via Zod
-- **Search:** Tavily (`@langchain/community`)
-- **Market data:** Yahoo Finance public endpoints (no key)
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 14 (App Router), React 18, Tailwind CSS, Framer Motion |
+| Backend | Next.js Route Handler (Node runtime) |
+| Agent orchestration | LangGraph.js (`@langchain/langgraph`) |
+| LLM | Google Gemini via `@langchain/google-genai`, raw JSON structured output |
+| Web search | DuckDuckGo Instant Answer API + HTML scraper (no key) |
+| Market data | Yahoo Finance v8/finance/chart public endpoint (no key) |
+| Fallback LLM | OpenRouter via `@langchain/openai` (optional) |
 
 ---
 
 ## 8. Repo structure
 
 ```
-investment-research-agent/
+AI-Investment-Research-Agent/
 ├── app/
-│   ├── api/research/route.ts   # POST endpoint that runs the agent
-│   ├── layout.tsx
-│   ├── page.tsx                 # UI
-│   └── globals.css
+│   ├── api/research/route.js   # POST endpoint — validates request, runs agent
+│   ├── globals.css             # Tailwind + Google Fonts
+│   ├── layout.jsx              # Root layout with dark mode
+│   └── page.jsx                # Full UI: 5-tab analyst dashboard
 ├── lib/
-│   ├── agent.ts                 # LangGraph.js StateGraph + decision node
-│   ├── types.ts                 # shared types
+│   ├── agent.js                # LangGraph StateGraph + model fallback decision node
+│   ├── types.js                # Shared type definitions
 │   └── tools/
-│       ├── stockData.ts         # ticker resolution + quote snapshot
-│       └── webSearch.ts         # Tavily wrapper w/ graceful fallback
-├── .env.example
-├── BUILD_LOG.md                  # development log / how AI was used to build this
+│       ├── stockData.js        # Yahoo Finance v8 ticker resolution + quote snapshot
+│       └── webSearch.js        # DuckDuckGo search (Instant Answer API + HTML fallback)
+├── server.js                   # Standalone Express server (alternative runner)
+├── .env.example                # Key template
+├── .env.local                  # Your actual keys (gitignored)
+├── next.config.mjs             # serverComponentsExternalPackages for LangChain
 ├── package.json
-└── README.md                     # this file
+├── BUILD_LOG.md                # Full build log + AI chat transcript
+└── README.md
 ```
-
-See **`BUILD_LOG.md`** for the running log of the actual build process and
-the decisions made along the way (bonus section: how AI was used while
-building).
