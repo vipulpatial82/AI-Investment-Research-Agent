@@ -189,7 +189,16 @@ Bear Case:
 
 **DuckDuckGo over Tavily** — Tavily requires an API key with a free-tier quota. DuckDuckGo is completely free with no signup. The agent uses the Instant Answer API first, then falls back to HTML scraping. Trade-off: shallower results, but zero external dependencies beyond a Google key.
 
-**Model fallback chain** — Free Gemini tiers have per-minute and per-day quotas. Rather than failing hard on a 429, the agent automatically tries the next available model. One exhausted model never kills the run.
+**Model fallback chain** — Free Gemini tiers have per-minute and per-day quotas. Rather than failing hard on a 429, the agent automatically tries the next available model in this order:
+
+| Priority | Model | Triggers when |
+|----------|-------|---------------|
+| 1st | `gemini-2.0-flash-lite` | Always tried first |
+| 2nd | `gemini-2.5-flash-preview-05-20` | 1st hits 429 quota or 404 |
+| 3rd | `gemini-2.5-pro-preview-05-06` | 2nd also fails |
+| 4th | OpenRouter `gpt-4o-mini` | All Gemini models fail |
+
+One exhausted model never kills the run.
 
 **Raw JSON prompt over `withStructuredOutput` + Zod** — `withStructuredOutput` requires function-calling support which not all free Gemini models have. A raw JSON prompt with `extractJSON()` works reliably across all models.
 
