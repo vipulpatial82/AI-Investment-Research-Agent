@@ -8,9 +8,6 @@
 [![Gemini](https://img.shields.io/badge/Google-Gemini-4285F4?style=for-the-badge&logo=google)](https://aistudio.google.com)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-**Give it a company name → get a structured INVEST / PASS / WATCHLIST verdict with full reasoning.**
-
-*Built for the InsideIIM × Altuni AI Labs "AI Product Development Engineer (Intern)" take-home assignment.*
 
 </div>
 
